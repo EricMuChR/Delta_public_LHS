@@ -15,7 +15,7 @@ MATCH_THRESHOLD = 20.0
 
 def main():
     print("="*60)
-    print("   Step 7 Diagnosis: 补偿前后效果对比 (全统一标尺)")
+    print("   Step 7 Diagnosis: 最终版 (SafeZone=100mm, 标题显示Max)")
     print("="*60)
 
     # 1. 加载配置
@@ -91,14 +91,13 @@ def main():
     max_pre = np.max(data[:,3])
     max_post = np.max(data[:,4])
     
-    # === 关键：统一所有标尺 ===
-    # 1. 颜色标尺 (Colorbar)
+    idx_max_pre = np.argmax(data[:,3])
+    idx_max_post = np.argmax(data[:,4])
+    
+    # === 标尺设定 ===
     GLOBAL_VMIN = 0
     GLOBAL_VMAX = max(max_pre, max_post)
-    
-    # 2. Y轴刻度标尺 (Y-Limit)
-    # 取最大误差的 1.1 倍，让最高点不顶格
-    GLOBAL_YLIM = [0, GLOBAL_VMAX * 1.1]
+    GLOBAL_YLIM = [0, GLOBAL_VMAX * 1.15] 
 
     print(f"\n📊 效果统计 (基于 {len(data)} 个点):")
     print(f"   补偿前: RMSE={rmse_pre:.2f}mm, Max={max_pre:.2f}mm")
@@ -107,27 +106,29 @@ def main():
 
     # 6. 绘图 (2x2)
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    
+    rmse_formula_latex = r'$RMSE = \sqrt{\frac{1}{N}\sum_{i=1}^{N} (e_i)^2}$'
+
     def plot_scatter(ax, x, y, c, title, xlabel, ylabel, vmin, vmax, vline=None, ylim=None):
         sc = ax.scatter(x, y, c=c, cmap='jet', alpha=0.7, s=20, vmin=vmin, vmax=vmax)
-        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.set_title(title, fontsize=12, fontweight='bold', pad=10)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.grid(True, alpha=0.3)
         if vline:
-            ax.axvline(vline, color='r', linestyle='--', label='Safe Zone (110mm)')
-            ax.legend()
-        # 强制设置 Y 轴范围
+            # 🔴 修改点1：Safe Zone 改为 100mm，位置左上角
+            ax.axvline(vline, color='r', linestyle='--', label='Safe Zone (100mm)')
+            ax.legend(loc='upper left', framealpha=0.9)
         if ylim:
             ax.set_ylim(ylim)
         return sc
 
     # --- 第一排：补偿前 (Before) ---
-    # 左图：误差 vs 半径 (设置 ylim)
+    # 左图：误差 vs 半径 (Max显示在标题)
+    title_pre_left = f"BEFORE: Error vs Radius\nMax: {max_pre:.3f} mm (R={data[idx_max_pre, 2]:.1f})"
     sc1 = plot_scatter(axes[0,0], data[:,2], data[:,3], data[:,3], 
-                       f"BEFORE: Error vs Radius", 
+                       title_pre_left, 
                        "Radius (mm)", "Error (mm)", 
-                       GLOBAL_VMIN, GLOBAL_VMAX, vline=110, ylim=GLOBAL_YLIM)
+                       GLOBAL_VMIN, GLOBAL_VMAX, vline=100, ylim=GLOBAL_YLIM)
     plt.colorbar(sc1, ax=axes[0,0], label='Error (mm)')
     
     # 右图：空间分布
@@ -139,13 +140,17 @@ def main():
     axes[0,1].add_patch(circle)
     axes[0,1].axis('equal')
     plt.colorbar(sc2, ax=axes[0,1], label='Error (mm)')
+    axes[0,1].text(0.05, 0.95, rmse_formula_latex, transform=axes[0,1].transAxes,
+                   fontsize=14, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
 
     # --- 第二排：补偿后 (After) ---
-    # 左图：误差 vs 半径 (设置同样的 ylim) -> 你会看到点都趴在下面
+    # 左图：误差 vs 半径 (Max显示在标题)
+    title_post_left = f"AFTER: Error vs Radius\nMax: {max_post:.3f} mm (R={data[idx_max_post, 2]:.1f})"
     sc3 = plot_scatter(axes[1,0], data[:,2], data[:,4], data[:,4], 
-                       f"AFTER: Error vs Radius", 
+                       title_post_left, 
                        "Radius (mm)", "Error (mm)",
-                       GLOBAL_VMIN, GLOBAL_VMAX, vline=110, ylim=GLOBAL_YLIM)
+                       GLOBAL_VMIN, GLOBAL_VMAX, vline=100, ylim=GLOBAL_YLIM)
     plt.colorbar(sc3, ax=axes[1,0], label='Error (mm)')
 
     # 右图：空间分布
@@ -157,8 +162,13 @@ def main():
     axes[1,1].add_patch(circle)
     axes[1,1].axis('equal')
     plt.colorbar(sc4, ax=axes[1,1], label='Error (mm)')
+    axes[1,1].text(0.05, 0.95, rmse_formula_latex, transform=axes[1,1].transAxes,
+                   fontsize=14, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
 
-    plt.tight_layout()
+    # 保持良好的间距布局
+    plt.tight_layout(rect=[0, 0, 1, 0.92], h_pad=4.0)
+    
     plt.show()
 
 if __name__ == "__main__":

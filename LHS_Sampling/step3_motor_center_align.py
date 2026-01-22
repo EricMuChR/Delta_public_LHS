@@ -1,0 +1,141 @@
+import numpy as np
+import pandas as pd
+import os
+from scipy.optimize import least_squares
+
+# ================= 配置区域 (默认训练配置) =================
+DEFAULT_INPUT_ARCS = "motor_arcs.csv"            
+DEFAULT_INPUT_MEAS = "tracker_raw_data.csv"   
+DEFAULT_OUTPUT_MEAS = "aligned_measurement_motor.csv" 
+DEFAULT_OUTPUT_MATRIX = "step3_matrix.npz"              
+# ========================================================
+
+def fit_circle_3d(points):
+    """ 3D圆拟合: 返回圆心和法向量 """
+    centroid = np.mean(points, axis=0)
+    shifted = points - centroid
+    U, S, Vt = np.linalg.svd(shifted)
+    normal = Vt[2, :] 
+    
+    z_prime = normal
+    x_prime = np.cross(np.array([1,0,0]), z_prime)
+    if np.linalg.norm(x_prime) < 1e-3: x_prime = np.cross(np.array([0,1,0]), z_prime)
+    x_prime /= np.linalg.norm(x_prime)
+    y_prime = np.cross(z_prime, x_prime)
+    
+    P_2d = np.column_stack((np.dot(shifted, x_prime), np.dot(shifted, y_prime)))
+    
+    def calc_R(xc, yc): return np.sqrt((P_2d[:,0]-xc)**2 + (P_2d[:,1]-yc)**2)
+    def f_2(c): Ri = calc_R(*c); return Ri - Ri.mean()
+    
+    center_2d = least_squares(f_2, [0, 0]).x 
+    center_3d = centroid + center_2d[0]*x_prime + center_2d[1]*y_prime
+    return center_3d, normal
+
+def get_circumcenter(A, B, C):
+    """ 计算三角形外心 (即原点) """
+    a, b = A - C, B - C
+    axb = np.cross(a, b)
+    if np.linalg.norm(axb) == 0: return np.mean([A,B,C], axis=0)
+    return C + (np.cross(np.linalg.norm(a)**2 * b - np.linalg.norm(b)**2 * a, axb)) / (2 * np.linalg.norm(axb)**2)
+
+def build_frame_from_motors(c1, c2, c3):
+    """ 构建坐标系 R, t 并计算静平台半径 """
+    print(f"拟合出的电机中心:\n M1: {np.round(c1,3)}\n M2: {np.round(c2,3)}\n M3: {np.round(c3,3)}")
+    
+    origin = get_circumcenter(c1, c2, c3)
+    
+    R1 = np.linalg.norm(c1 - origin)
+    R2 = np.linalg.norm(c2 - origin)
+    R3 = np.linalg.norm(c3 - origin)
+    R_avg = (R1 + R2 + R3) / 3.0
+    
+    print("-" * 40)
+    print(f"📏 静平台半径 (Base Radius): Avg R = {R_avg:.4f} mm")
+    print("-" * 40)
+    
+    # 建立基坐标系
+    v12, v13 = c2 - c1, c3 - c1
+    z_axis = np.cross(v12, v13)
+    z_axis /= np.linalg.norm(z_axis)
+    
+    y_raw = c1 - origin
+    y_axis = y_raw - np.dot(y_raw, z_axis) * z_axis 
+    y_axis /= np.linalg.norm(y_axis)
+    
+    x_axis = np.cross(y_axis, z_axis)
+    
+    R = np.column_stack((x_axis, y_axis, z_axis))
+    return R.T, origin 
+
+def run_alignment_process(file_arcs, file_matrix_out, file_raw_meas=None, file_aligned_meas=None):
+    """ 
+    通用的对齐处理函数 
+    file_arcs: 电机画圆数据 (输入)
+    file_matrix_out: 变换矩阵 (输出)
+    file_raw_meas: 待转换的原始测量点 (可选输入)
+    file_aligned_meas: 转换后的测量点 (可选输出)
+    """
+    print(f"\n🚀 开始处理坐标系对齐...")
+    print(f"   输入轨迹: {file_arcs}")
+    
+    # 1. 读取并解算电机中心
+    if not os.path.exists(file_arcs):
+        print(f"❌ 找不到 {file_arcs}")
+        return False
+    
+    df_arcs = pd.read_csv(file_arcs)
+    centers = {}
+    
+    try:
+        col_id = 'motor_id' if 'motor_id' in df_arcs.columns else 'motor'
+        for mid in [1, 2, 3]:
+            pts = df_arcs[df_arcs[col_id] == mid][['x','y','z']].values
+            if len(pts) < 3: raise ValueError(f"电机 {mid} 点数不足3个")
+            c, n = fit_circle_3d(pts)
+            centers[mid] = c
+    except Exception as e:
+        print(f"❌ 拟合失败: {e}")
+        return False
+
+    # 2. 构建矩阵
+    R_inv, t = build_frame_from_motors(centers[1], centers[2], centers[3])
+    
+    # 3. 保存矩阵
+    np.savez(file_matrix_out, R=R_inv, t=t)
+    print(f"✅ 变换矩阵已保存: {file_matrix_out}")
+
+    # 4. (可选) 转换原始采样数据
+    if file_raw_meas and file_aligned_meas and os.path.exists(file_raw_meas):
+        print(f"🔄 正在转换测量数据: {file_raw_meas}")
+        df_meas = pd.read_csv(file_raw_meas)
+        if 'x' in df_meas.columns:
+            pts_tracker = df_meas[['x', 'y', 'z']].values
+        else:
+            pts_tracker = df_meas.iloc[:, 3:6].values
+
+        pts_robot = np.dot(R_inv, (pts_tracker - t).T).T
+        
+        # Z轴方向检查
+        if np.mean(pts_robot[:, 2]) > 0:
+            print(f"⚠️ 警告: Z 轴平均值为正，可能 Z 轴反向。")
+
+        df_out = pd.DataFrame(pts_robot, columns=['x', 'y', 'z'])
+        df_out.to_csv(file_aligned_meas, index=False)
+        print(f"✅ 数据转换完成: {file_aligned_meas}")
+        
+    return True
+
+def main():
+    print("="*60)
+    print("   Step 3: 坐标系解算 (默认训练模式)")
+    print("="*60)
+    run_alignment_process(
+        DEFAULT_INPUT_ARCS, 
+        DEFAULT_OUTPUT_MATRIX, 
+        DEFAULT_INPUT_MEAS, 
+        DEFAULT_OUTPUT_MEAS
+    )
+
+if __name__ == "__main__":
+    main()

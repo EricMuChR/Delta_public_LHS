@@ -1,0 +1,30 @@
+paths:
+  identification_data: D:\PythonProjects\DaranRobot\Delta_public_LHS\LHS_Sampling\training_data_merged.csv
+  identified_params_output: results/identified_params.npy
+robot_parameters:
+  active_arm_length: 100.0
+  fixed_platform_radius: 35.0
+  moving_platform_hinge_spacing: 49.0
+  moving_platform_radius: 23.4
+  passive_arm_length: 250.0
+  tool_offset:
+  - -0.2698
+  - -1.2463
+  - -31.5736
+run_settings:
+  device: cpu
+  mode: identify
+stage_one_settings:
+  global_search:
+    generations: 700
+    param_lower_bound: -25.0
+    param_upper_bound: 25.0
+    population_size: 96
+  local_finetune:
+    adam:
+      convergence_grad_norm: 1.0e-05
+      learning_rate: 0.001
+      max_iterations: 100000
+    lbfgs:
+      convergence_gtol: 1.0e-09
+      max_iterations: 500

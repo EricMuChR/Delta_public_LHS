@@ -15,7 +15,7 @@ MATCH_THRESHOLD = 20.0
 
 def main():
     print("="*60)
-    print("   Step 7 Diagnosis: 最终版 (SafeZone=100mm, 标题显示Max)")
+    print("   Step 7 Diagnosis: 最终高清版 (HD Output)")
     print("="*60)
 
     # 1. 加载配置
@@ -68,6 +68,7 @@ def main():
             dist_pre = np.linalg.norm(err_vec_pre)
             
             r = np.sqrt(p_orig[0]**2 + p_orig[1]**2)
+            # data columns: [x, y, r, err_pre, err_post]
             plot_data.append([p_orig[0], p_orig[1], r, dist_pre, dist_post])
             meas_cursor += 1
             cmd_cursor += 1
@@ -110,12 +111,12 @@ def main():
 
     def plot_scatter(ax, x, y, c, title, xlabel, ylabel, vmin, vmax, vline=None, ylim=None):
         sc = ax.scatter(x, y, c=c, cmap='jet', alpha=0.7, s=20, vmin=vmin, vmax=vmax)
-        ax.set_title(title, fontsize=12, fontweight='bold', pad=10)
+        ax.set_title(title, fontsize=12, fontweight='bold', pad=12) # 增加标题padding
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.grid(True, alpha=0.3)
         if vline:
-            # 🔴 修改点1：Safe Zone 改为 100mm，位置左上角
+            # 🔴 修改：Safe Zone 100mm，左上角图例
             ax.axvline(vline, color='r', linestyle='--', label='Safe Zone (100mm)')
             ax.legend(loc='upper left', framealpha=0.9)
         if ylim:
@@ -123,7 +124,7 @@ def main():
         return sc
 
     # --- 第一排：补偿前 (Before) ---
-    # 左图：误差 vs 半径 (Max显示在标题)
+    # 左图：误差 vs 半径 (Max显示在标题第二行)
     title_pre_left = f"BEFORE: Error vs Radius\nMax: {max_pre:.3f} mm (R={data[idx_max_pre, 2]:.1f})"
     sc1 = plot_scatter(axes[0,0], data[:,2], data[:,3], data[:,3], 
                        title_pre_left, 
@@ -145,7 +146,7 @@ def main():
                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
 
     # --- 第二排：补偿后 (After) ---
-    # 左图：误差 vs 半径 (Max显示在标题)
+    # 左图：误差 vs 半径 (Max显示在标题第二行)
     title_post_left = f"AFTER: Error vs Radius\nMax: {max_post:.3f} mm (R={data[idx_max_post, 2]:.1f})"
     sc3 = plot_scatter(axes[1,0], data[:,2], data[:,4], data[:,4], 
                        title_post_left, 
@@ -166,9 +167,16 @@ def main():
                    fontsize=14, verticalalignment='top',
                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
 
-    # 保持良好的间距布局
+    # 🔴 关键布局调整
+    # rect=[0, 0, 1, 0.92]: 顶部留空 8% 给标题
+    # h_pad=4.0: 上下两排间距拉大
     plt.tight_layout(rect=[0, 0, 1, 0.92], h_pad=4.0)
     
+    # 🔴 高清保存 (DPI 1000)
+    save_filename = "step7_diagnosis_HD.png"
+    print(f"💾 正在保存高清结果图: {save_filename} (DPI=1000)...")
+    plt.savefig(save_filename, dpi=1000, bbox_inches='tight')
+
     plt.show()
 
 if __name__ == "__main__":

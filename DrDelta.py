@@ -377,7 +377,7 @@ class robot(am.arm):
         self.do_motion(speed=speed, acceleration=acceleration, o_r=o_r, n=n, flg=1)
     #
     # 四、机器人关节角度控制函数
-    def set_joints(self, angle_list=[0, 0, 0], speed=1.0):
+    def set_joints(self, angle_list=[0, 0, 0], speed=1.0, acceleration=10):
         """控制机器人关节运动到指定模型角度
 
         Args:
@@ -402,7 +402,7 @@ class robot(am.arm):
                     return False
             self.position_list.append(position) # 将输入的关节角度列表保存进 position_list
             self.tutorial_t_list.append(0) # 指定该组姿态与下组姿态的时间间隔为 0
-            self.do_motion(speed=speed) # 执行动作
+            self.do_motion(speed=speed, acceleration=acceleration) # 执行动作
             self.forward_kinematics_position(angle_list) # 使用运动学正解计算指定机器人关节模型角度后的位置和姿态
             return True
         else:

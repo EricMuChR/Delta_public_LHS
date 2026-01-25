@@ -70,10 +70,10 @@ def main():
         print(f"   -> PIDL Joints: {angles}")
         
         # === 核心: 直接发送关节角度 ===
-        ro.set_joints(angle_list=angles, speed=500) # 速度可调
+        ro.set_joints(angle_list=angles, speed=500, acceleration=200) # 速度可调
         
         # 等待运动到位 + 稳定 (根据你的Tracker采集速度调整)
-        time.sleep(2.0) 
+        time.sleep(2) 
         
         print("   📡 采集窗口 (Tracker Recording...)")
 

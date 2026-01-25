@@ -4,17 +4,21 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import json
 
 # ================= 配置区域 =================
-# 1. 之前生成的指令文件
+# 1. 之前的指令文件 (含 Target)
 FILE_COMMANDS = "pidl_verification_commands.csv"
 
-# 2. 实测数据文件 (你必须要手动把 Tracker 数据存成这个名字)
-# 格式: 必须包含 x, y, z (或者 meas_x 等)
-FILE_MEASURED = "pidl_measured_data.csv"
+# 2. 实测原始数据 (由激光跟踪仪直接导出，未转换)
+FILE_MEASURED_RAW = "pidl_measured_raw.csv"
 
-# 3. 绘图配置
-GLOBAL_R_LIMIT = 100.0 # 画图时的圆圈半径
+# 3. 坐标转换文件
+FILE_MATRIX_VAL = "matrix_val.npz"         # 由 phase7_realign_tracker.py 生成
+FILE_OFFSET_JSON = "../LHS_Sampling/tool_offset.json" # 工具偏置
+
+# 4. 绘图配置
+GLOBAL_R_LIMIT = 100.0 
 # ===========================================
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,69 +34,85 @@ except ImportError:
 
 def analyze_results():
     print("="*60)
-    print("   Phase 7 (Step 3): Diagnosis & Visualization (HD)")
+    print("   Phase 7 (Step 3): Diagnosis & Visualization (With Re-Alignment)")
     print("="*60)
     
-    # 1. 检查文件
-    if not os.path.exists(FILE_COMMANDS):
-        print(f"❌ 找不到指令文件: {FILE_COMMANDS}")
-        return
-    if not os.path.exists(FILE_MEASURED):
-        print(f"❌ 找不到实测文件: {FILE_MEASURED}")
-        print("   请确保你已经把 Tracker 的数据保存为 'pidl_measured_data.csv'")
-        return
-        
+    # 1. 检查文件完整性
+    files_to_check = [FILE_COMMANDS, FILE_MEASURED_RAW, FILE_MATRIX_VAL, FILE_OFFSET_JSON]
+    for f in files_to_check:
+        if not os.path.exists(f):
+            print(f"❌ 缺少文件: {f}")
+            if f == FILE_MATRIX_VAL:
+                print("   -> 请先运行 phase7_realign_tracker.py 生成新矩阵。")
+            return
+
+    # 2. 加载数据与矩阵
+    print("🔄 正在加载数据与坐标变换矩阵...")
     df_cmds = pd.read_csv(FILE_COMMANDS)
-    df_meas = pd.read_csv(FILE_MEASURED)
+    df_raw = pd.read_csv(FILE_MEASURED_RAW)
     
-    # 对齐数据长度
-    n_points = min(len(df_cmds), len(df_meas))
+    matrix_data = np.load(FILE_MATRIX_VAL)
+    R_inv, t = matrix_data['R'], matrix_data['t']
+    
+    with open(FILE_OFFSET_JSON, 'r') as f:
+        tool_offset = np.array(json.load(f)["tool_offset"])
+    print(f"   Tool Offset loaded: {tool_offset}")
+
+    # 3. 数据对齐与坐标转换
+    n_points = min(len(df_cmds), len(df_raw))
     df_cmds = df_cmds.iloc[:n_points]
-    df_meas = df_meas.iloc[:n_points]
+    df_raw = df_raw.iloc[:n_points]
     
-    # 2. 提取数据
     targets = df_cmds[['target_x', 'target_y', 'target_z']].values
     
-    # 兼容列名
-    if 'x.1' in df_meas.columns:
-        measured = df_meas[['x.1', 'y.1', 'z.1']].values
-    elif 'meas_x' in df_meas.columns:
-        measured = df_meas[['meas_x', 'meas_y', 'meas_z']].values
+    # 读取原始测量数据 (兼容 x/y/z 或 x.1/y.1/z.1 或 meas_x...)
+    if 'x.1' in df_raw.columns:
+        pts_raw = df_raw[['x.1', 'y.1', 'z.1']].values
+    elif 'meas_x' in df_raw.columns:
+        pts_raw = df_raw[['meas_x', 'meas_y', 'meas_z']].values
     else:
-        measured = df_meas.iloc[:, -3:].values
-        
-    # 3. 计算误差
-    # (A) 补偿后误差 (PIDL Error) = Target - Measured
+        # 默认取最后三列，或者是前三列，取决于你的导出格式
+        # 建议检查这里，通常跟踪仪导出的是 x,y,z
+        if 'x' in df_raw.columns:
+            pts_raw = df_raw[['x', 'y', 'z']].values
+        else:
+            pts_raw = df_raw.iloc[:, 0:3].values
+
+    # === 核心：坐标系转换 (Tracker -> Robot) ===
+    # 公式: P_robot = R_inv * (P_tracker - t)
+    print("⚡ 执行坐标系转换 (Tracker -> Robot Base)...")
+    pts_robot_base = np.dot(R_inv, (pts_raw - t).T).T
+    
+    # 减去工具偏置，得到法兰中心坐标 (与 Target 对比)
+    measured = pts_robot_base - tool_offset
+
+    # 4. 计算误差
+    # (A) 补偿后误差 (PIDL)
     errors_post = np.linalg.norm(targets - measured, axis=1)
     
-    # (B) 模拟补偿前误差 (Nominal Error)
-    print("🔄 正在计算 '补偿前' 模拟误差 (用于对比)...")
-    
-    # 加载 PIDL 模型作为"真实物理世界的代理"
+    # (B) 模拟补偿前误差 (Nominal)
+    print("🔄 正在计算 '补偿前' 模拟误差...")
     model_path = os.path.join(current_dir, "pidl_final_model.pth")
     engine = PIDL_Inference_Engine(model_path)
     arm_nominal = nominal_kinematics.arm(l=[100, 250, 35, 23.4])
     
     errors_pre = []
     for i, target in enumerate(targets):
-        # 1. 用名义参数算逆解
         if arm_nominal.inverse_kinematics(target):
-            theta_nominal_rad = np.radians(arm_nominal.theta)
-            # 2. 扔进 PIDL 模型看它实际会跑到哪
-            real_pos_sim = engine.forward_predict(theta_nominal_rad).numpy()[0]
+            theta_rad = np.radians(arm_nominal.theta)
+            # 预测名义控制下的实际位置
+            real_pos_sim = engine.forward_predict(theta_rad).numpy()[0]
             errors_pre.append(np.linalg.norm(target - real_pos_sim))
         else:
             errors_pre.append(np.nan)
-            
     errors_pre = np.array(errors_pre)
     
-    # 4. 绘图准备
+    # 5. 统计与绘图
     r_vals = np.sqrt(targets[:,0]**2 + targets[:,1]**2)
     data = np.column_stack((targets[:,0], targets[:,1], r_vals, errors_pre, errors_post))
     mask = ~np.isnan(data).any(axis=1)
     data = data[mask]
     
-    # 统计
     rmse_pre = np.sqrt(np.mean(data[:,3]**2))
     rmse_post = np.sqrt(np.mean(data[:,4]**2))
     max_pre = np.max(data[:,3])
@@ -106,9 +126,8 @@ def analyze_results():
     print(f"   补偿前 (Nominal): RMSE={rmse_pre:.2f}mm, Max={max_pre:.2f}mm")
     print(f"   补偿后 (PIDL)   : RMSE={rmse_post:.2f}mm, Max={max_post:.2f}mm")
     
-    # 5. 绘图
+    # 绘图逻辑
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    
     def plot_scatter(ax, x, y, c, title, xlabel, ylabel):
         sc = ax.scatter(x, y, c=c, cmap='jet', alpha=0.7, s=20, vmin=GLOBAL_VMIN, vmax=GLOBAL_VMAX)
         ax.set_title(title, fontsize=12, fontweight='bold')

@@ -71,9 +71,10 @@ def main():
         
         # === 核心: 直接发送关节角度 ===
         ro.set_joints(angle_list=angles, speed=500, acceleration=200) # 速度可调
+        ro.position_done()
         
         # 等待运动到位 + 稳定 (根据你的Tracker采集速度调整)
-        time.sleep(2) 
+        time.sleep(2.5) 
         
         print("   📡 采集窗口 (Tracker Recording...)")
 

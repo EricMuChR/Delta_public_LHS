@@ -82,7 +82,7 @@ def main():
     print("\n" + "="*60)
     print(f"🎉 验证执行完毕！耗时: {total_time/60:.1f} min")
     print("="*60)
-    print("👉 请保存激光跟踪仪数据为 'pidl_measured_data.csv' (在 LHS_PIDL 目录下)。")
+    print("👉 请保存激光跟踪仪数据为 'pidl_measured_raw.csv' (在 LHS_PIDL 目录下)。")
     print("👉 然后运行 'phase7_verification_loop.py' 进行画图分析。")
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ def main():
                 
                 # 激光跟踪仪测量时间窗口
                 print("⏳ 等待测量...")
-                time.sleep(1.85) 
+                time.sleep(1.85)
 
             print("\n🎉 采集完成！")
             

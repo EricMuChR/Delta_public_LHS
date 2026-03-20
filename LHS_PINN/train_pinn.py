@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, TensorDataset
 from Delta_Torch import DeltaKinematics
+import torch.optim.lr_scheduler as lr_scheduler
 import os
 import json
 
@@ -96,6 +97,7 @@ def main():
     
     # 优化器: 同时优化 NN权重 和 物理参数(L1, L2...)
     optimizer = optim.Adam(model.parameters(), lr=LR)
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
     
     # Loss 函数
     criterion_data = nn.MSELoss() # 监督学习 Loss
@@ -130,7 +132,7 @@ def main():
             # 同时，物理层里的参数 (L1, R...) 会为了满足这个约束而被优化
             # 注意: 我们也可以对 pred_pos 施加物理约束，但这会限制 NN 的修正能力
             # 这里我们选择约束物理层，让物理层尽可能“真实”
-            residue = physics_layer.compute_physics_residue(theta_batch, phys_pos)
+            residue = physics_layer.compute_physics_residue(theta_batch, pred_pos)
             loss_phys = torch.mean(residue)
             
             # --- Total Loss ---
@@ -138,6 +140,7 @@ def main():
             
             loss.backward()
             optimizer.step()
+            scheduler.step()
             
             ep_loss += loss.item()
             ep_data += loss_data.item()
@@ -189,6 +192,12 @@ def main():
     plt.grid(True)
     plt.savefig(LOSS_PLOT_PATH)
     print("📈 Loss 曲线已保存。")
+
+    # 导出 Loss 历史数据到 CSV
+    df_history = pd.DataFrame(history)
+    df_history.index.name = 'epoch'
+    df_history.to_csv("pinn_loss_history_3000.csv")
+    print("💾 Loss 历史数据已保存为 CSV 文件。")
 
 if __name__ == "__main__":
     main()

@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, TensorDataset
 from Delta_Torch import DeltaKinematics
+import torch.optim.lr_scheduler as lr_scheduler
 import json
 
 # ================= 配置 =================
@@ -83,6 +84,7 @@ def train_and_save():
     model = DeltaPINN(physics_layer)
     optimizer = optim.Adam(model.parameters(), lr=LR)
     criterion_data = nn.MSELoss() 
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
     
     history = {'total': [], 'data': [], 'phys': []}
     
@@ -101,13 +103,14 @@ def train_and_save():
             pred_pos, phys_pos, _ = model(theta_batch)
             loss_data = criterion_data(pred_pos, target_pos)
             
-            residue = physics_layer.compute_physics_residue(theta_batch, phys_pos)
+            residue = physics_layer.compute_physics_residue(theta_batch, pred_pos)
             loss_phys = torch.mean(residue)
             
             loss = loss_data + PHYSICS_WEIGHT * loss_phys
             
             loss.backward()
             optimizer.step()
+            scheduler.step()
             
             ep_loss += loss.item()
             ep_data += loss_data.item()
